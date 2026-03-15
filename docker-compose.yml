@@ -1,0 +1,136 @@
+# Docker Compose for VPN Gaming App
+# FE (port 80) + BE (port 8080) + DB (PostgreSQL)
+# 
+# Có 2 chế độ chạy:
+# 1. Với PostgreSQL container (mặc định): docker compose up -d
+# 2. Với PostgreSQL host: docker compose up -d backend frontend
+
+services:
+  # =====================================================
+  # DATABASE - PostgreSQL
+  # =====================================================
+  database:
+    image: postgres:15-alpine
+    container_name: vpn_database
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-vpn_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-VpnSecure@2024}
+      POSTGRES_DB: ${DB_NAME:-vpn_app}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${DB_USER:-vpn_user} -d ${DB_NAME:-vpn_app}" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - vpn_network
+
+  # =====================================================
+  # BACKEND - FastAPI
+  # =====================================================
+  backend:
+    build:
+      context: ./BE_vpn
+      dockerfile: Dockerfile
+    container_name: vpn_backend
+    restart: unless-stopped
+    depends_on:
+      database:
+        condition: service_healthy
+    environment:
+      # Database connection
+      # Sử dụng container: database:5432
+      # Sử dụng host: host.docker.internal:5432
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg2://vpn_user:VpnSecure@2024@database:5432/vpn_app}
+
+      # JWT Configuration
+      JWT_SECRET: ${JWT_SECRET:-your-super-secret-jwt-key-change-in-production}
+      JWT_ALG: HS256
+      JWT_EXPIRE_MIN: 30
+
+      # App settings - URL công khai của backend
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:8080}
+
+      # CORS - Các domain được phép truy cập
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost,http://localhost:80,http://localhost:8080}
+
+      # SMTP settings
+      SMTP_FALLBACK_TO_CONSOLE: ${SMTP_FALLBACK_TO_CONSOLE:-true}
+      SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_USE_TLS: ${SMTP_USE_TLS:-true}
+
+      # Google OAuth (optional)
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-}
+
+      # MoMo Payment (optional)
+      MOMO_PARTNER_CODE: ${MOMO_PARTNER_CODE:-}
+      MOMO_ACCESS_KEY: ${MOMO_ACCESS_KEY:-}
+      MOMO_SECRET_KEY: ${MOMO_SECRET_KEY:-}
+      MOMO_ENDPOINT: ${MOMO_ENDPOINT:-https://test-payment.momo.vn/v2/gateway/api/create}
+      MOMO_REDIRECT_URL: ${MOMO_REDIRECT_URL:-http://localhost/app}
+      MOMO_IPN_URL: ${MOMO_IPN_URL:-http://localhost:8080/payments/momo/ipn}
+      MOMO_REQUEST_TYPE: ${MOMO_REQUEST_TYPE:-payWithMethod}
+
+    ports:
+      - "8080:8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8000/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - vpn_network
+
+  # =====================================================
+  # FRONTEND - React + Nginx (với Reverse Proxy)
+  # =====================================================
+  # Nginx sẽ proxy /auth, /machines, /payments, /admin đến backend
+  # FE và BE chạy cùng domain, chỉ cần mở port 80
+  frontend:
+    build:
+      context: ./FE_vpn
+      dockerfile: Dockerfile
+      args:
+        # Production: để trống hoặc không set - FE gọi API qua nginx proxy
+        # Development: set http://localhost:8080 để gọi trực tiếp backend
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-}
+    container_name: vpn_frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - vpn_network
+
+# =====================================================
+# VOLUMES
+# =====================================================
+volumes:
+  postgres_data:
+    driver: local
+
+# =====================================================
+# NETWORKS
+# =====================================================
+networks:
+  vpn_network:
+    driver: bridge

@@ -1,0 +1,101 @@
+# ============================================
+# ROOT LEVEL .gitignore
+# ============================================
+
+# ============================================
+# Environment Variables
+# ============================================
+.env
+.env.local
+.env.*.local
+# Keep examples in git
+!.env.example
+!.env.production
+
+# ============================================
+# Python (Backend)
+# ============================================
+# Virtual environments
+.venv/
+.venv310/
+venv/
+ENV/
+env/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# ============================================
+# Node.js (Frontend)
+# ============================================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Build outputs
+dist/
+dist-ssr/
+*.local
+
+# ============================================
+# IDE & Editor
+# ============================================
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+*.swp
+*.swo
+
+# ============================================
+# OS
+# ============================================
+.DS_Store
+Thumbs.db
+.AppleDouble
+.LSOverride
+
+# ============================================
+# Logs
+# ============================================
+logs
+*.log
+npm-debug.log*
+
+# ============================================
+# Git
+# ============================================
+.git/
+
+# ============================================
+# Docker
+# ============================================
+# Keep Dockerfiles and docker-compose in git
+docker-compose.override.yml
+
+# ============================================
+# IDE Configuration (local)
+# ============================================
+.vscode/settings.json
+.idea/workspace.xml

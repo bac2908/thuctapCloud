@@ -1,0 +1,87 @@
+# ============================================
+# Backend (.gitignore for BE_vpn/)
+# ============================================
+
+# ============================================
+# Environment Variables
+# ============================================
+.env
+.env.local
+.env.*.local
+
+# ============================================
+# Python Cache & Virtual Environments
+# ============================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+.venv310/
+venv/
+ENV/
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# ============================================
+# IDE & Debugging
+# ============================================
+.vscode/
+.idea/
+*.pyo
+*.pyd
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+*.swp
+*.swo
+
+# ============================================
+# Testing
+# ============================================
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.hypothesis/
+
+# ============================================
+# OS
+# ============================================
+.DS_Store
+Thumbs.db
+.AppleDouble
+.LSOverride
+
+# ============================================
+# Local Database & Logs
+# ============================================
+*.db
+*.sqlite
+*.sqlite3
+*.log
+
+# ============================================
+# Migration & Database
+# ============================================
+# Do NOT ignore migration files, they should be in git
+!/migrations/
