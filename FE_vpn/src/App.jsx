@@ -13,7 +13,7 @@ import Register from './pages/auth/Register'
 import ForgotPassword from './pages/auth/ForgotPassword'
 import ResetPassword from './pages/auth/ResetPassword'
 import AdminLogin from './pages/auth/AdminLogin'
-import mock from './data/mock'
+import mock from './utils/mock'
 import { createMomoPayment, getBalance } from './api/payments'
 import { fetchMe, logout as logoutApi, normalizeUser } from './api/auth'
 

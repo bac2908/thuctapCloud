@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { getTopupHistory } from '../api/payments'
 
+const TOPUP_PAGE_SIZE = 10
+
 function History({ ctx }) {
     const [activeTab, setActiveTab] = useState('sessions')
     const [topupHistory, setTopupHistory] = useState([])
@@ -8,6 +10,7 @@ function History({ ctx }) {
     const [topupError, setTopupError] = useState('')
     const [page, setPage] = useState(1)
     const [totalPages, setTotalPages] = useState(1)
+    const [topupTotal, setTopupTotal] = useState(0)
     const [statusFilter, setStatusFilter] = useState('')
 
     useEffect(() => {
@@ -19,12 +22,15 @@ function History({ ctx }) {
             setTopupError('')
             try {
                 const data = await getTopupHistory(
-                    { page, pageSize: 10, status: statusFilter || undefined },
+                    { page, pageSize: TOPUP_PAGE_SIZE, status: statusFilter || undefined },
                     ctx?.token
                 )
                 if (!cancelled) {
                     setTopupHistory(data.items || [])
-                    setTotalPages(data.pages || 1)
+                    const totalItems = data.total || 0
+                    const size = data.page_size || TOPUP_PAGE_SIZE
+                    setTopupTotal(totalItems)
+                    setTotalPages(Math.max(1, Math.ceil(totalItems / size)))
                 }
             } catch (err) {
                 if (!cancelled) {
@@ -50,6 +56,7 @@ function History({ ctx }) {
 
     const getStatusBadge = (status) => {
         switch (status) {
+            case 'succeeded':
             case 'completed':
                 return <span className="badge success">Thành công</span>
             case 'pending':
@@ -118,7 +125,7 @@ function History({ ctx }) {
                                 }}
                             >
                                 <option value="">Tất cả</option>
-                                <option value="completed">Thành công</option>
+                                <option value="succeeded">Thành công</option>
                                 <option value="pending">Đang xử lý</option>
                                 <option value="failed">Thất bại</option>
                             </select>
@@ -164,7 +171,7 @@ function History({ ctx }) {
 
                             {/* Pagination */}
                             <div className="pagination">
-                                <div className="muted">Trang {page}/{totalPages}</div>
+                                <div className="muted">Trang {page}/{totalPages} · {topupTotal} giao dịch</div>
                                 <div className="actions">
                                     <button
                                         className="btn ghost"

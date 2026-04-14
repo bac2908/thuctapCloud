@@ -249,3 +249,30 @@ class SessionsPage(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class AdminSettingsOut(BaseModel):
+    password_min_length: int
+    password_require_upper: bool
+    password_require_lower: bool
+    password_require_digit: bool
+    lockout_max_attempts: int
+    lockout_minutes: int
+    min_topup_amount: int
+    session_timeout_hours: int
+    snapshot_retention_count: int
+
+    class Config:
+        orm_mode = True
+
+
+class AdminSettingsUpdate(BaseModel):
+    password_min_length: int = Field(..., ge=8, le=128)
+    password_require_upper: bool
+    password_require_lower: bool
+    password_require_digit: bool
+    lockout_max_attempts: int = Field(..., ge=1, le=20)
+    lockout_minutes: int = Field(..., ge=1, le=1440)
+    min_topup_amount: int = Field(..., ge=10000)
+    session_timeout_hours: int = Field(..., ge=1, le=168)
+    snapshot_retention_count: int = Field(..., ge=1, le=10)

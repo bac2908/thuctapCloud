@@ -2,6 +2,10 @@ import argparse
 from sqlalchemy.exc import IntegrityError
 from app.database import SessionLocal
 from app import models, security
+from app.core.logging import configure_logging, get_logger
+
+
+logger = get_logger(__name__)
 
 
 def create_user(email: str, password: str, display_name: str | None, role: str) -> None:
@@ -10,7 +14,7 @@ def create_user(email: str, password: str, display_name: str | None, role: str) 
     try:
         existing = db.query(models.User).filter(models.User.email == email).first()
         if existing:
-            print(f"User already exists with email={email}, id={existing.id}")
+            logger.info("User already exists email=%s id=%s", email, existing.id)
             return
 
         user = models.User(
@@ -24,15 +28,16 @@ def create_user(email: str, password: str, display_name: str | None, role: str) 
         db.add_all([user, credential])
         db.commit()
         db.refresh(user)
-        print(f"Created user id={user.id} email={user.email}")
+        logger.info("Created user id=%s email=%s", user.id, user.email)
     except IntegrityError as exc:
         db.rollback()
-        print(f"Failed to create user: {exc.orig}")
+        logger.error("Failed to create user: %s", exc.orig)
     finally:
         db.close()
 
 
 def main():
+    configure_logging()
     parser = argparse.ArgumentParser(description="Seed a user into the database")
     parser.add_argument("--email", required=True, help="User email (unique)")
     parser.add_argument("--password", required=True, help="Plaintext password to hash")

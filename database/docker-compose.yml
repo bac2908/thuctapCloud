@@ -1,0 +1,25 @@
+services:
+  database:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: vpn_database_local
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-vpn_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-change-this-db-password}
+      POSTGRES_DB: ${DB_NAME:-vpn_app}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backups:/backups
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-vpn_user} -d ${DB_NAME:-vpn_app}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+    driver: local

@@ -1,0 +1,4 @@
+# Ignore generated backup files
+backups/backup_*.sql
+backups/backup_*.sql.gz
+backups/*.dump

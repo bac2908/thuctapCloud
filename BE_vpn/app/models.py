@@ -271,3 +271,20 @@ class TopupTransaction(Base):
 
     user = relationship("User", back_populates="topup_transactions")
     payment = relationship("Payment")
+
+
+class AdminSettings(Base):
+    __tablename__ = "admin_settings"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    password_min_length = Column(Integer, nullable=False, default=8)
+    password_require_upper = Column(Boolean, nullable=False, default=True)
+    password_require_lower = Column(Boolean, nullable=False, default=True)
+    password_require_digit = Column(Boolean, nullable=False, default=True)
+    lockout_max_attempts = Column(Integer, nullable=False, default=5)
+    lockout_minutes = Column(Integer, nullable=False, default=10)
+    min_topup_amount = Column(BigInteger, nullable=False, default=10000)
+    session_timeout_hours = Column(Integer, nullable=False, default=24)
+    snapshot_retention_count = Column(Integer, nullable=False, default=1)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

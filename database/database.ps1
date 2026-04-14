@@ -1,5 +1,6 @@
 # =====================================================
 # Database Management Script - Windows PowerShell
+# Legacy compatibility entrypoint (preferred scripts are in ./scripts)
 # =====================================================
 # Usage:
 #   .\database.ps1 -Action init          # Initialize database
@@ -23,17 +24,23 @@ param(
     [int]$DbPort = 5432,
     
     [Parameter(Mandatory = $false)]
-    [string]$DbUser = 'vpn_user',
+    [string]$DbUser = $env:DB_USER,
     
     [Parameter(Mandatory = $false)]
-    [string]$DbName = 'vpn_app',
+    [string]$DbName = $env:DB_NAME,
     
     [Parameter(Mandatory = $false)]
-    [string]$DbPassword = 'Bn2908#2004'
+    [string]$DbPassword = $env:DB_PASSWORD
 )
 
 # Set script directory
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$BackupDir = Join-Path $ScriptDir "backups"
+
+# Fallback defaults when env vars are not provided
+if ([string]::IsNullOrWhiteSpace($DbUser)) { $DbUser = 'vpn_user' }
+if ([string]::IsNullOrWhiteSpace($DbName)) { $DbName = 'vpn_app' }
+if ([string]::IsNullOrWhiteSpace($DbPassword)) { $DbPassword = 'change-this-db-password' }
 
 # Color output
 function Write-Info {
@@ -96,8 +103,8 @@ function Ensure-Database {
 function Invoke-DbInit {
     Write-Info "Initializing database schema..."
     
-    if (-not (Test-Path "$ScriptDir\schema.sql")) {
-        Write-Error-Custom "schema.sql not found in $ScriptDir"
+    if (-not (Test-Path "$ScriptDir\init.sql")) {
+        Write-Error-Custom "init.sql not found in $ScriptDir"
         exit 1
     }
     
@@ -105,7 +112,7 @@ function Invoke-DbInit {
     
     $env:PGPASSWORD = $DbPassword
     try {
-        psql -h $DbHost -U $DbUser -d $DbName -f "$ScriptDir\schema.sql"
+        psql -h $DbHost -U $DbUser -d $DbName -f "$ScriptDir\init.sql"
         Write-Info "Database schema initialized successfully."
     }
     finally {
@@ -117,14 +124,14 @@ function Invoke-DbInit {
 function Invoke-DbSeed {
     Write-Info "Loading seed data..."
     
-    if (-not (Test-Path "$ScriptDir\seed.sql")) {
-        Write-Error-Custom "seed.sql not found in $ScriptDir"
+    if (-not (Test-Path "$ScriptDir\seeds\seed.sql")) {
+        Write-Error-Custom "seeds\seed.sql not found in $ScriptDir"
         exit 1
     }
     
     $env:PGPASSWORD = $DbPassword
     try {
-        psql -h $DbHost -U $DbUser -d $DbName -f "$ScriptDir\seed.sql"
+        psql -h $DbHost -U $DbUser -d $DbName -f "$ScriptDir\seeds\seed.sql"
         Write-Info "Seed data loaded successfully."
     }
     finally {
@@ -134,8 +141,12 @@ function Invoke-DbSeed {
 
 # Backup database
 function Invoke-DbBackup {
+    if (-not (Test-Path $BackupDir)) {
+        New-Item -ItemType Directory -Path $BackupDir | Out-Null
+    }
+
     $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
-    $backupFile = Join-Path $ScriptDir "backup_$timestamp.sql"
+    $backupFile = Join-Path $BackupDir "backup_$timestamp.sql"
     
     Write-Info "Backing up database to $backupFile..."
     
@@ -264,10 +275,10 @@ Parameters:
   -DbPort         Database port (default: 5432)
   -DbUser         Database user (default: vpn_user)
   -DbName         Database name (default: vpn_app)
-  -DbPassword     Database password (default: Bn2908#2004)
+    -DbPassword     Database password (default: change-this-db-password or DB_PASSWORD env)
 
 Examples:
-  # Full setup
+    # Full setup (schema + seed)
   .\database.ps1 -Action init
   .\database.ps1 -Action seed
 
@@ -275,7 +286,7 @@ Examples:
   .\database.ps1 -Action backup
 
   # Restore
-  .\database.ps1 -Action restore -File "backup_20260315_120000.sql"
+    .\database.ps1 -Action restore -File "backups/backup_20260315_120000.sql"
 
   # Show stats
   .\database.ps1 -Action stats

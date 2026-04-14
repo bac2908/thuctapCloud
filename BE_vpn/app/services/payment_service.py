@@ -1,0 +1,205 @@
+import hashlib
+import hmac
+import logging
+import secrets
+from datetime import datetime
+
+import httpx
+from fastapi import HTTPException, status
+
+from app import models, schemas
+from app.config import get_settings
+from app.repositories.payment_repository import PaymentRepository
+
+
+class PaymentService:
+    def __init__(self, db):
+        self.repo = PaymentRepository(db)
+        self.settings = get_settings()
+        self.logger = logging.getLogger(__name__)
+
+    def _ensure_momo_config(self) -> None:
+        required = {
+            "MOMO_PARTNER_CODE": self.settings.momo_partner_code,
+            "MOMO_ACCESS_KEY": self.settings.momo_access_key,
+            "MOMO_SECRET_KEY": self.settings.momo_secret_key,
+        }
+        missing = [key for key, value in required.items() if not value]
+        if missing:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Thieu cau hinh MoMo: " + ", ".join(missing),
+            )
+
+    def _sign_momo(self, raw: str) -> str:
+        return hmac.new(self.settings.momo_secret_key.encode(), raw.encode(), hashlib.sha256).hexdigest()
+
+    def create_momo_payment(self, payload: schemas.PaymentCreateRequest, current_user: models.User) -> schemas.PaymentInitResponse:
+        self._ensure_momo_config()
+
+        if payload.amount < 10000:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="So tien toi thieu la 10.000d")
+
+        order_id = secrets.token_hex(10)
+        request_id = secrets.token_hex(10)
+        amount = payload.amount
+        order_info = payload.description or "Nap tien qua MoMo"
+        redirect_url = self.settings.momo_redirect_url or self.settings.app_base_url.rstrip("/") + "/app"
+        ipn_url = self.settings.momo_ipn_url or self.settings.app_base_url.rstrip("/") + "/payments/momo/ipn"
+        extra_data = ""
+
+        raw_signature = (
+            f"accessKey={self.settings.momo_access_key}&amount={amount}&extraData={extra_data}"
+            f"&ipnUrl={ipn_url}&orderId={order_id}&orderInfo={order_info}"
+            f"&partnerCode={self.settings.momo_partner_code}&redirectUrl={redirect_url}"
+            f"&requestId={request_id}&requestType={self.settings.momo_request_type}"
+        )
+        signature = self._sign_momo(raw_signature)
+
+        body = {
+            "partnerCode": self.settings.momo_partner_code,
+            "partnerName": "VPN Gaming",
+            "storeId": "VPN_STORE",
+            "requestId": request_id,
+            "amount": amount,
+            "orderId": order_id,
+            "orderInfo": order_info,
+            "redirectUrl": redirect_url,
+            "ipnUrl": ipn_url,
+            "lang": "vi",
+            "extraData": extra_data,
+            "requestType": self.settings.momo_request_type,
+            "signature": signature,
+            "accessKey": self.settings.momo_access_key,
+        }
+
+        try:
+            response = httpx.post(self.settings.momo_endpoint, json=body, timeout=10)
+        except httpx.RequestError as exc:
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"MoMo khong phan hoi: {exc}") from exc
+
+        data = response.json() if response.headers.get("content-type", "").startswith("application/json") else {}
+        if response.status_code != 200:
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Khong goi duoc MoMo")
+
+        if data.get("resultCode") != 0 or not data.get("payUrl"):
+            message = data.get("message") or "MoMo tu choi giao dich"
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=message)
+
+        payment = self.repo.create_payment(
+            user_id=current_user.id,
+            order_id=order_id,
+            request_id=request_id,
+            amount=amount,
+            provider="momo",
+            status="pending",
+            message=data.get("message"),
+            pay_url=data.get("payUrl"),
+            extra_data=extra_data,
+        )
+        self.repo.create_pending_topup(
+            user_id=current_user.id,
+            payment_id=payment.id,
+            amount=amount,
+            balance_before=current_user.balance or 0,
+            description=payload.description,
+        )
+        self.repo.commit()
+
+        return schemas.PaymentInitResponse(
+            order_id=order_id,
+            request_id=request_id,
+            pay_url=data.get("payUrl"),
+            amount=amount,
+        )
+
+    def momo_ipn(self, payload: dict) -> dict:
+        self._ensure_momo_config()
+        self.logger.info("MoMo IPN received: %s", payload)
+
+        required_keys = ["orderId", "requestId", "amount", "signature", "resultCode", "message", "partnerCode"]
+        for key in required_keys:
+            if key not in payload:
+                return {"resultCode": 10, "message": f"Missing {key}"}
+
+        extra_data = payload.get("extraData") or ""
+        raw_signature = (
+            f"accessKey={self.settings.momo_access_key}&amount={payload.get('amount')}"
+            f"&extraData={extra_data}&message={payload.get('message')}"
+            f"&orderId={payload.get('orderId')}"
+            f"&orderInfo={payload.get('orderInfo', '')}"
+            f"&orderType={payload.get('orderType', '')}"
+            f"&partnerCode={payload.get('partnerCode')}"
+            f"&payType={payload.get('payType', '')}"
+            f"&requestId={payload.get('requestId')}"
+            f"&responseTime={payload.get('responseTime')}"
+            f"&resultCode={payload.get('resultCode')}"
+            f"&transId={payload.get('transId', '')}"
+        )
+
+        if self._sign_momo(raw_signature) != payload.get("signature"):
+            self.logger.warning("MoMo IPN invalid signature for order %s", payload.get("orderId"))
+            return {"resultCode": 10, "message": "Invalid signature"}
+
+        payment = self.repo.get_payment_by_order_id(payload.get("orderId"))
+        if not payment:
+            self.logger.warning("MoMo IPN order not found: %s", payload.get("orderId"))
+            return {"resultCode": 0, "message": "Order not found"}
+
+        if payment.status in ("succeeded", "failed"):
+            self.logger.info("MoMo IPN order already processed: %s", payload.get("orderId"))
+            return {"resultCode": 0, "message": "Already processed"}
+
+        is_success = payload.get("resultCode") == 0
+        trans_id = str(payload.get("transId")) if payload.get("transId") is not None else None
+
+        self.repo.mark_payment_result(
+            payment=payment,
+            is_success=is_success,
+            message=payload.get("message"),
+            trans_id=trans_id,
+            extra_data=extra_data,
+        )
+
+        topup = self.repo.get_topup_by_payment_id(payment.id)
+        if topup and is_success:
+            user = self.repo.get_user_by_id(payment.user_id)
+            if user:
+                old_balance, new_balance = self.repo.apply_topup_success(
+                    topup=topup,
+                    user=user,
+                    amount=payment.amount,
+                    trans_id=payment.trans_id,
+                )
+                self.logger.info(
+                    "Topup success: user=%s, amount=%d, new_balance=%d",
+                    user.email,
+                    payment.amount,
+                    new_balance,
+                )
+        elif topup and not is_success:
+            self.repo.mark_topup_failed(topup)
+            self.logger.info("Topup failed: payment_id=%s", payment.id)
+
+        self.repo.commit()
+        return {"resultCode": 0, "message": "OK"}
+
+    def get_user_balance(self, current_user: models.User) -> schemas.UserBalanceOut:
+        balance = current_user.balance or 0
+        formatted = f"{balance:,.0f}đ".replace(",", ".")
+        return schemas.UserBalanceOut(balance=balance, formatted_balance=formatted)
+
+    def get_topup_history(
+        self,
+        current_user: models.User,
+        page: int,
+        page_size: int,
+        status_filter: str | None,
+    ) -> schemas.TopupHistoryPage:
+        items, total = self.repo.list_user_topup_history(
+            user_id=current_user.id,
+            page=page,
+            page_size=page_size,
+            status_filter=status_filter,
+        )
+        return schemas.TopupHistoryPage(items=items, total=total, page=page, page_size=page_size)

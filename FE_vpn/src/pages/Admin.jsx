@@ -14,6 +14,8 @@ import {
     stopSession,
     getRevenueStatistics,
     adminTopupUser,
+    getAdminSettings,
+    updateAdminSettings,
 } from '../api/admin'
 import { logout as logoutApi } from '../api/auth'
 import './admin.css'
@@ -45,7 +47,7 @@ function Admin({ ctx, onLogout }) {
     const [billingTransactions, setBillingTransactions] = useState([])
     const [billingError, setBillingError] = useState('')
     const [billingLoading, setBillingLoading] = useState(false)
-    const [billingFilters, setBillingFilters] = useState({ status: '', provider: '', user_email: '', date_from: '', date_to: '' })
+    const [billingFilters, setBillingFilters] = useState({ status: '', provider: '', user_id: '', date_from: '', date_to: '' })
 
     // User state
     const [userPage, setUserPage] = useState(1)
@@ -72,6 +74,20 @@ function Admin({ ctx, onLogout }) {
     const [sessionError, setSessionError] = useState('')
     const [sessionFilters, setSessionFilters] = useState({ status: '' })
 
+    // Settings UI state (UI-first, backend sync will be added in next BE phase)
+    const [settingsForm, setSettingsForm] = useState({
+        password_min_length: 8,
+        password_require_upper: true,
+        password_require_lower: true,
+        password_require_digit: true,
+        lockout_max_attempts: 5,
+        lockout_minutes: 10,
+        min_topup_amount: 10000,
+        session_timeout_hours: 24,
+        snapshot_retention_count: 1,
+    })
+    const [settingsMessage, setSettingsMessage] = useState('')
+
     const [selectedTransaction, setSelectedTransaction] = useState(null)
     const dialogRef = useRef()
 
@@ -79,6 +95,38 @@ function Admin({ ctx, onLogout }) {
     const machineTotalPages = Math.max(1, Math.ceil(machineTotal / machinePageSize))
     const sessionTotalPages = Math.max(1, Math.ceil(sessionTotal / sessionPageSize))
     const billingTotalPages = Math.max(1, Math.ceil(billingTotal / billingPageSize))
+
+    useEffect(() => {
+        if (!isAdmin) return
+
+        let cancelled = false
+
+        async function loadSettings() {
+            try {
+                const data = await getAdminSettings(token)
+                if (!cancelled && data) {
+                    setSettingsForm((prev) => ({ ...prev, ...data }))
+                    return
+                }
+            } catch (err) {
+                console.warn('Load admin settings from API failed, using draft fallback', err)
+            }
+
+            try {
+                const raw = localStorage.getItem('admin_settings_draft')
+                if (!raw) return
+                const parsed = JSON.parse(raw)
+                if (!cancelled) setSettingsForm((prev) => ({ ...prev, ...parsed }))
+            } catch (err) {
+                console.warn('Load admin settings draft failed', err)
+            }
+        }
+
+        loadSettings()
+        return () => {
+            cancelled = true
+        }
+    }, [isAdmin, token])
 
     // Load Dashboard
     const loadDashboard = useCallback(async () => {
@@ -173,6 +221,7 @@ function Admin({ ctx, onLogout }) {
             const params = {
                 page: billingPage,
                 page_size: billingPageSize,
+                user_id: billingFilters.user_id || undefined,
                 status: billingFilters.status,
                 provider: billingFilters.provider,
                 date_from: billingFilters.date_from ? new Date(billingFilters.date_from).toISOString() : undefined,
@@ -280,6 +329,99 @@ function Admin({ ctx, onLogout }) {
         } catch (err) {
             setSessionError(err.message || 'Không dừng được session')
         }
+    }
+
+    const handleAdminTopup = async (userId, userEmail) => {
+        const rawAmount = window.prompt(`Nhap so tien nap cho ${userEmail} (VND):`, '50000')
+        if (rawAmount === null) return
+
+        const amount = Number(rawAmount)
+        if (!Number.isFinite(amount) || amount <= 0) {
+            setUserError('So tien nap phai lon hon 0')
+            return
+        }
+
+        const description = window.prompt('Nhap ghi chu giao dich (co the bo trong):', `Admin topup cho ${userEmail}`)
+
+        try {
+            setUserError('')
+            await adminTopupUser(userId, Math.round(amount), description || undefined, token)
+            loadUsers()
+            loadBilling()
+            loadDashboard()
+        } catch (err) {
+            setUserError(err.message || 'Khong nap tien duoc cho user')
+        }
+    }
+
+    const handleSettingsNumberChange = (field, value) => {
+        setSettingsMessage('')
+        setSettingsForm((prev) => ({
+            ...prev,
+            [field]: value === '' ? '' : Number(value),
+        }))
+    }
+
+    const handleSettingsToggle = (field) => {
+        setSettingsMessage('')
+        setSettingsForm((prev) => ({ ...prev, [field]: !prev[field] }))
+    }
+
+    const handleSaveSettings = () => {
+        const minLength = Number(settingsForm.password_min_length)
+        const minTopup = Number(settingsForm.min_topup_amount)
+        const lockoutAttempts = Number(settingsForm.lockout_max_attempts)
+        const lockoutMinutes = Number(settingsForm.lockout_minutes)
+        const sessionTimeout = Number(settingsForm.session_timeout_hours)
+        const retentionCount = Number(settingsForm.snapshot_retention_count)
+
+        if (!Number.isFinite(minLength) || minLength < 8) {
+            setSettingsMessage('Password min length phai >= 8')
+            return
+        }
+        if (!Number.isFinite(minTopup) || minTopup < 10000) {
+            setSettingsMessage('Muc nap toi thieu phai >= 10.000')
+            return
+        }
+        if (!Number.isFinite(lockoutAttempts) || lockoutAttempts < 1) {
+            setSettingsMessage('So lan login sai toi da phai >= 1')
+            return
+        }
+        if (!Number.isFinite(lockoutMinutes) || lockoutMinutes < 1) {
+            setSettingsMessage('Thoi gian lockout phai >= 1 phut')
+            return
+        }
+        if (!Number.isFinite(sessionTimeout) || sessionTimeout < 1) {
+            setSettingsMessage('Session timeout phai >= 1 gio')
+            return
+        }
+        if (!Number.isFinite(retentionCount) || retentionCount < 1) {
+            setSettingsMessage('Snapshot retention phai >= 1')
+            return
+        }
+
+        const payload = {
+            password_min_length: minLength,
+            password_require_upper: Boolean(settingsForm.password_require_upper),
+            password_require_lower: Boolean(settingsForm.password_require_lower),
+            password_require_digit: Boolean(settingsForm.password_require_digit),
+            lockout_max_attempts: lockoutAttempts,
+            lockout_minutes: lockoutMinutes,
+            min_topup_amount: minTopup,
+            session_timeout_hours: sessionTimeout,
+            snapshot_retention_count: retentionCount,
+        }
+
+        updateAdminSettings(payload, token)
+            .then((data) => {
+                setSettingsForm((prev) => ({ ...prev, ...data }))
+                localStorage.setItem('admin_settings_draft', JSON.stringify(data))
+                setSettingsMessage('Da luu cau hinh qua API /admin/settings thanh cong.')
+            })
+            .catch((err) => {
+                localStorage.setItem('admin_settings_draft', JSON.stringify(payload))
+                setSettingsMessage(`Luu API that bai (${err.message || 'unknown error'}), da luu draft local.`)
+            })
     }
 
     // Export CSV
@@ -574,6 +716,7 @@ function Admin({ ctx, onLogout }) {
                                         </select>
                                     </span>
                                     <span className="actions">
+                                        <button className="btn ghost small" onClick={() => handleAdminTopup(u.id, u.email)}>💸</button>
                                         <button className="btn ghost small" onClick={() => handleUserUpdate(u.id, { status: 'suspended' })}>🔒</button>
                                         <button className="btn ghost small" onClick={() => handleUserUpdate(u.id, { status: 'active' })}>🔓</button>
                                     </span>
@@ -744,12 +887,12 @@ function Admin({ ctx, onLogout }) {
                                 <button className="btn secondary" onClick={() => exportTransactionsCSV(billingTransactions)}>📥 Xuất CSV</button>
                             </div>
                             <div className="actions filter-row">
-                                <input className="input-inline" placeholder="Tìm user" value={billingFilters.user_email} onChange={e => setBillingFilters(f => ({ ...f, user_email: e.target.value }))} />
+                                <input className="input-inline" placeholder="User ID (UUID)" value={billingFilters.user_id} onChange={e => { setBillingFilters(f => ({ ...f, user_id: e.target.value })); setBillingPage(1) }} />
                                 <select className="input-inline" value={billingFilters.status} onChange={e => { setBillingFilters(f => ({ ...f, status: e.target.value })); setBillingPage(1) }}>
                                     <option value="">Tất cả trạng thái</option><option value="succeeded">Thành công</option><option value="pending">Chờ xử lý</option><option value="failed">Thất bại</option>
                                 </select>
                                 <select className="input-inline" value={billingFilters.provider} onChange={e => { setBillingFilters(f => ({ ...f, provider: e.target.value })); setBillingPage(1) }}>
-                                    <option value="">Tất cả phương thức</option><option value="momo">MoMo</option><option value="bank">Ngân hàng</option>
+                                    <option value="">Tất cả phương thức</option><option value="momo">MoMo</option><option value="admin">Admin</option><option value="bank">Ngân hàng</option>
                                 </select>
                                 <input className="input-inline" type="date" value={billingFilters.date_from} onChange={e => setBillingFilters(f => ({ ...f, date_from: e.target.value }))} />
                                 <input className="input-inline" type="date" value={billingFilters.date_to} onChange={e => setBillingFilters(f => ({ ...f, date_to: e.target.value }))} />
@@ -790,16 +933,53 @@ function Admin({ ctx, onLogout }) {
                     <section className="card">
                         <div className="section-head">
                             <div><p className="muted">Policies</p><h3>Cấu hình chính sách</h3></div>
-                            <button className="btn primary">💾 Lưu cấu hình</button>
+                            <button className="btn primary" onClick={handleSaveSettings}>💾 Lưu cấu hình</button>
                         </div>
                         <div className="policy-grid">
-                            <div className="policy-item"><p>🔐 Password policy</p><span className="pill ghost">≥ 8 ký tự, HOA/thường/số</span></div>
-                            <div className="policy-item"><p>🔒 Lockout policy</p><span className="pill ghost">Khóa 10 phút sau 5 lần sai</span></div>
-                            <div className="policy-item"><p>🛡️ CSRF protection</p><span className="pill success">Bật</span></div>
-                            <div className="policy-item"><p>💾 Snapshot retention</p><span className="pill ghost">Giữ 1 bản gần nhất/user</span></div>
-                            <div className="policy-item"><p>💰 Nạp tiền tối thiểu</p><span className="pill ghost">10.000đ</span></div>
-                            <div className="policy-item"><p>⏱️ Session timeout</p><span className="pill ghost">24 giờ</span></div>
+                            <div className="policy-item">
+                                <p>🔐 Password min length</p>
+                                <input type="number" min="8" value={settingsForm.password_min_length} onChange={(e) => handleSettingsNumberChange('password_min_length', e.target.value)} />
+                            </div>
+                            <div className="policy-item">
+                                <p>🔡 Require lowercase</p>
+                                <button className="btn ghost" onClick={() => handleSettingsToggle('password_require_lower')}>
+                                    {settingsForm.password_require_lower ? 'Bat' : 'Tat'}
+                                </button>
+                            </div>
+                            <div className="policy-item">
+                                <p>🔠 Require uppercase</p>
+                                <button className="btn ghost" onClick={() => handleSettingsToggle('password_require_upper')}>
+                                    {settingsForm.password_require_upper ? 'Bat' : 'Tat'}
+                                </button>
+                            </div>
+                            <div className="policy-item">
+                                <p>🔢 Require digit</p>
+                                <button className="btn ghost" onClick={() => handleSettingsToggle('password_require_digit')}>
+                                    {settingsForm.password_require_digit ? 'Bat' : 'Tat'}
+                                </button>
+                            </div>
+                            <div className="policy-item">
+                                <p>🔒 Lockout max attempts</p>
+                                <input type="number" min="1" value={settingsForm.lockout_max_attempts} onChange={(e) => handleSettingsNumberChange('lockout_max_attempts', e.target.value)} />
+                            </div>
+                            <div className="policy-item">
+                                <p>⏳ Lockout minutes</p>
+                                <input type="number" min="1" value={settingsForm.lockout_minutes} onChange={(e) => handleSettingsNumberChange('lockout_minutes', e.target.value)} />
+                            </div>
+                            <div className="policy-item">
+                                <p>💰 Min topup amount (VND)</p>
+                                <input type="number" min="10000" step="1000" value={settingsForm.min_topup_amount} onChange={(e) => handleSettingsNumberChange('min_topup_amount', e.target.value)} />
+                            </div>
+                            <div className="policy-item">
+                                <p>⏱️ Session timeout (hours)</p>
+                                <input type="number" min="1" value={settingsForm.session_timeout_hours} onChange={(e) => handleSettingsNumberChange('session_timeout_hours', e.target.value)} />
+                            </div>
+                            <div className="policy-item">
+                                <p>💾 Snapshot retention count</p>
+                                <input type="number" min="1" value={settingsForm.snapshot_retention_count} onChange={(e) => handleSettingsNumberChange('snapshot_retention_count', e.target.value)} />
+                            </div>
                         </div>
+                        {settingsMessage && <div className="alert success">{settingsMessage}</div>}
                     </section>
                 )}
 

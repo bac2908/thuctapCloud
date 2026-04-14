@@ -6,13 +6,17 @@
 # Environment Variables
 # ============================================
 .env
+.env.*
 .env.local
 .env.*.local
+!.env.example
 
 # ============================================
 # Python Cache & Virtual Environments
 # ============================================
 __pycache__/
+**/__pycache__/
+*.pyc
 *.py[cod]
 *$py.class
 *.so
@@ -22,6 +26,8 @@ __pycache__/
 venv/
 ENV/
 env/
+**/.venv/
+**/.venv*/
 build/
 develop-eggs/
 dist/
@@ -71,6 +77,13 @@ htmlcov/
 Thumbs.db
 .AppleDouble
 .LSOverride
+
+# ============================================
+# Git Metadata
+# ============================================
+.git
+.git/
+**/.git/
 
 # ============================================
 # Local Database & Logs

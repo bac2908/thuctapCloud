@@ -1,6 +1,7 @@
 #!/bin/bash
 # =====================================================
 # Database Initialization & Management Script
+# Legacy compatibility entrypoint (preferred scripts are in ./scripts)
 # For: Linux/macOS
 # =====================================================
 # Usage:
@@ -17,8 +18,9 @@ DB_HOST=${DB_HOST:-localhost}
 DB_PORT=${DB_PORT:-5432}
 DB_USER=${DB_USER:-vpn_user}
 DB_NAME=${DB_NAME:-vpn_app}
-DB_PASSWORD=${DB_PASSWORD:-VpnSecure@2024}
+DB_PASSWORD=${DB_PASSWORD:-change-this-db-password}
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BACKUP_DIR="$SCRIPT_DIR/backups"
 
 # Colors
 RED='\033[0;31m'
@@ -64,29 +66,30 @@ function init_database() {
     log_info "Initializing database schema..."
     check_database
     
-    if [ ! -f "$SCRIPT_DIR/schema.sql" ]; then
-        log_error "schema.sql not found in $SCRIPT_DIR"
+    if [ ! -f "$SCRIPT_DIR/init.sql" ]; then
+        log_error "init.sql not found in $SCRIPT_DIR"
         exit 1
     fi
     
-    psql -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME" -f "$SCRIPT_DIR/schema.sql"
+    psql -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME" -f "$SCRIPT_DIR/init.sql"
     log_info "Database schema initialized successfully."
 }
 
 function seed_data() {
     log_info "Loading seed data..."
     
-    if [ ! -f "$SCRIPT_DIR/seed.sql" ]; then
-        log_error "seed.sql not found in $SCRIPT_DIR"
+    if [ ! -f "$SCRIPT_DIR/seeds/seed.sql" ]; then
+        log_error "seeds/seed.sql not found in $SCRIPT_DIR"
         exit 1
     fi
     
-    psql -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME" -f "$SCRIPT_DIR/seed.sql"
+    psql -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME" -f "$SCRIPT_DIR/seeds/seed.sql"
     log_info "Seed data loaded successfully."
 }
 
 function backup_database() {
-    BACKUP_FILE="$SCRIPT_DIR/backup_$(date +%Y%m%d_%H%M%S).sql"
+    mkdir -p "$BACKUP_DIR"
+    BACKUP_FILE="$BACKUP_DIR/backup_$(date +%Y%m%d_%H%M%S).sql"
     log_info "Backing up database to $BACKUP_FILE..."
     
     pg_dump -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME" --no-password > "$BACKUP_FILE"
@@ -212,7 +215,7 @@ case $COMMAND in
         echo "  DB_NAME=$DB_NAME"
         echo ""
         echo "Examples:"
-        echo "  # Full setup"
+        echo "  # Full setup (schema + seed)"
         echo "  $0 init"
         echo "  $0 seed"
         echo ""
@@ -220,7 +223,7 @@ case $COMMAND in
         echo "  $0 backup"
         echo ""
         echo "  # Restore"
-        echo "  $0 restore backup_20260315_120000.sql"
+        echo "  $0 restore backups/backup_20260315_120000.sql"
         ;;
 esac
 

@@ -80,12 +80,13 @@ FE_vpn/
 │   │       ├── ResetPassword.jsx
 │   │       └── AdminLogin.jsx
 │   │
-│   ├── data/
-│   │   ├── mock.js                  # Mock data
-│   │   └── constants.js             # Constants
+│   ├── hooks/                       # Custom hooks
+│   ├── services/                    # Business services
+│   ├── utils/
+│   │   └── mock.js                  # Mock/session fallback data
 │   │
 │   ├── App.jsx                      # Main app component
-│   ├── main.jsx                     # React entry point
+│   ├── main.js                      # React entry point
 │   ├── index.css                    # Global styles
 │   └── App.css                      # App styles
 │

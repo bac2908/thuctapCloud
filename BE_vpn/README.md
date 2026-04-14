@@ -65,7 +65,20 @@ BE_vpn/
 │   ├── database.py                  # Database initialization
 │   ├── models.py                    # SQLAlchemy models (ORM)
 │   ├── schemas.py                   # Pydantic schemas (validation)
-│   ├── routes.py                    # API routes & endpoints
+│   ├── api/                         # API layer (FastAPI routers)
+│   │   ├── auth.py
+│   │   ├── machines.py
+│   │   ├── payments.py
+│   │   └── deps.py                  # Shared auth dependencies
+│   ├── services/                    # Business logic layer
+│   │   ├── auth_service.py
+│   │   ├── machine_service.py
+│   │   └── payment_service.py
+│   ├── repositories/                # Data access layer
+│   │   ├── auth_repository.py
+│   │   ├── machine_repository.py
+│   │   └── payment_repository.py
+│   ├── routes.py                    # Legacy/extended admin routes
 │   ├── security.py                  # JWT & password utilities
 │   ├── email_utils.py               # Email sending functions
 │   ├── seed.py                      # Database seeding (dev data)
@@ -89,6 +102,16 @@ BE_vpn/
 ├── .dockerignore
 └── README.md
 ```
+
+### Clean Architecture Flow
+
+```
+API (app/api) -> Service (app/services) -> Repository (app/repositories) -> Database (SQLAlchemy Session)
+```
+
+- API layer: chi xu ly HTTP (request/response, validation, dependency injection)
+- Service layer: chua logic nghiep vu
+- Repository layer: truy cap du lieu va query DB
 
 ---
 
@@ -147,10 +170,17 @@ Visit API docs: `http://localhost:8000/docs`
 
 ```env
 # Database
-DATABASE_URL=postgresql+psycopg2://vpn_user:password@localhost:5432/vpn_app
+# Option 1: Let app build connection string from DB_* (recommended)
+DATABASE_URL=
 DB_USER=vpn_user
-DB_PASSWORD=VpnSecure@2024
+DB_PASSWORD=change-this-db-password
 DB_NAME=vpn_app
+DB_HOST=localhost
+DB_PORT=5432
+DB_DRIVER=psycopg2
+
+# Option 2: Set DATABASE_URL directly (URL-encode special characters in password)
+# DATABASE_URL=postgresql+psycopg2://vpn_user:myP%40ss%23123@localhost:5432/vpn_app
 
 # JWT
 JWT_SECRET=your-random-256-bit-secret-key
@@ -160,6 +190,13 @@ JWT_EXPIRE_MIN=30
 # Application
 APP_BASE_URL=http://localhost:8000
 CORS_ORIGINS=http://localhost,http://localhost:3000
+LOG_LEVEL=INFO
+LOG_JSON=false
+
+# Startup seeding
+SEED_DEFAULT_DATA=true
+SEED_ADMIN_EMAIL=admin@vpngaming.com
+SEED_ADMIN_PASSWORD=change-this-admin-password
 ```
 
 ### Optional

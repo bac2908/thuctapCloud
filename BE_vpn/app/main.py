@@ -1,5 +1,6 @@
 from pathlib import Path
 import sys
+from time import perf_counter
 
 # Check Python compatibility early and provide a clear message if unsupported.
 # This project depends on Pydantic 1.x and FastAPI built against it; those
@@ -11,15 +12,24 @@ if sys.version_info >= (3, 13):
         "Please create a virtualenv using Python 3.11 (eg. `py -3.11 -m venv .venv`)."
     )
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app import models
+from app.config import get_settings
+from app.core.logging import configure_logging, get_logger
 from app.database import engine, init_database, SessionLocal
-from app.routes import router as auth_router, machines_router, payments_router, admin_router
+from app.api.auth import router as auth_router
+from app.api.machines import router as machines_router
+from app.api.payments import router as payments_router
+from app.api.admin import router as admin_router
 from app import security
+
+settings = get_settings()
+configure_logging(level=settings.log_level, use_json=settings.log_json)
+logger = get_logger(__name__)
 
 # Initialize database: create pgcrypto extension and all tables
 init_database()
@@ -27,6 +37,10 @@ init_database()
 
 def seed_default_data():
     """Seed default data if database is empty."""
+    if not settings.seed_default_data:
+        logger.info("Default seed data disabled (SEED_DEFAULT_DATA=false).")
+        return
+
     db = SessionLocal()
     try:
         # Seed default service plans if not exist
@@ -66,12 +80,15 @@ def seed_default_data():
             ]
             db.add_all(default_plans)
             db.commit()
-            print("✅ Seeded default service plans")
+            logger.info("Seeded default service plans")
 
         # Seed default admin user if not exist
-        admin_email = "admin@vpngaming.com"
+        admin_email = settings.seed_admin_email
         existing_admin = db.query(models.User).filter(models.User.email == admin_email).first()
         if not existing_admin:
+            if settings.seed_admin_password == "change-this-admin-password":
+                logger.warning("Using default SEED_ADMIN_PASSWORD. Set a strong value in .env.")
+
             admin_user = models.User(
                 email=admin_email,
                 display_name="Administrator",
@@ -79,12 +96,12 @@ def seed_default_data():
                 status="active",
             )
             admin_credential = models.Credential(
-                password_hash=security.hash_password("Admin@123"),
+                password_hash=security.hash_password(settings.seed_admin_password),
                 user=admin_user,
             )
             db.add_all([admin_user, admin_credential])
             db.commit()
-            print(f"✅ Seeded admin user: {admin_email} / Admin@123")
+            logger.info("Seeded admin user: %s", admin_email)
 
         # Seed sample machines if not exist
         existing_machines = db.query(models.Machine).first()
@@ -125,11 +142,11 @@ def seed_default_data():
             ]
             db.add_all(default_machines)
             db.commit()
-            print("✅ Seeded default machines")
+            logger.info("Seeded default machines")
 
     except Exception as e:
         db.rollback()
-        print(f"⚠️ Error seeding data: {e}")
+        logger.exception("Error seeding data: %s", e)
     finally:
         db.close()
 
@@ -140,8 +157,7 @@ seed_default_data()
 app = FastAPI(title="VPN Gaming Auth API")
 
 # Load settings for CORS configuration
-from app.config import get_settings
-cors_settings = get_settings()
+cors_settings = settings
 
 # CORS - supports both dev and production via CORS_ORIGINS env var
 app.add_middleware(
@@ -151,6 +167,45 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def log_http_requests(request: Request, call_next):
+    if request.url.path == "/health":
+        return await call_next(request)
+
+    start = perf_counter()
+    client_ip = request.client.host if request.client else "-"
+
+    try:
+        response = await call_next(request)
+    except Exception:
+        duration_ms = round((perf_counter() - start) * 1000, 2)
+        logger.exception(
+            "Unhandled HTTP error",
+            extra={
+                "method": request.method,
+                "path": request.url.path,
+                "status_code": 500,
+                "duration_ms": duration_ms,
+                "client_ip": client_ip,
+            },
+        )
+        raise
+
+    duration_ms = round((perf_counter() - start) * 1000, 2)
+    logger.info(
+        "HTTP request completed",
+        extra={
+            "method": request.method,
+            "path": request.url.path,
+            "status_code": response.status_code,
+            "duration_ms": duration_ms,
+            "client_ip": client_ip,
+        },
+    )
+    return response
+
 app.include_router(auth_router)
 app.include_router(machines_router)
 app.include_router(payments_router)

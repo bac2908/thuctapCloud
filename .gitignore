@@ -6,6 +6,7 @@
 # Environment Variables
 # ============================================
 .env
+.env.*
 .env.local
 .env.*.local
 # Keep examples in git
@@ -21,9 +22,13 @@
 venv/
 ENV/
 env/
+**/.venv/
+**/.venv*/
 
 # Python cache
 __pycache__/
+**/__pycache__/
+*.pyc
 *.py[cod]
 *$py.class
 *.so
@@ -86,7 +91,9 @@ npm-debug.log*
 # ============================================
 # Git
 # ============================================
+.git
 .git/
+**/.git/
 
 # ============================================
 # Docker

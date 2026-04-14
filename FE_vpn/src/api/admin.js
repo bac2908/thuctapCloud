@@ -50,6 +50,15 @@ export async function getMachineStatistics(token) {
     return request('/admin/machines/statistics', { token })
 }
 
+// ===== Admin Settings APIs =====
+export async function getAdminSettings(token) {
+    return request('/admin/settings', { token })
+}
+
+export async function updateAdminSettings(payload, token) {
+    return request('/admin/settings', { method: 'PUT', body: payload, token })
+}
+
 // ===== Session APIs =====
 export async function listSessions(params, token) {
     const query = buildQuery(params)
